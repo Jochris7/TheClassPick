@@ -1,35 +1,65 @@
-import { Tabs } from 'expo-router';
-import React from 'react';
+import { Ionicons } from "@expo/vector-icons";
+import { Tabs } from "expo-router";
+import React from "react";
 
-import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+const Layout = () => {
+    return (
+    <Tabs screenOptions={{
+        tabBarActiveTintColor: "#335599",
+        tabBarInactiveTintColor: "gray",
+        headerShown: true,
+        headerStyle: {
+          backgroundColor: "#4287f5",
+        },
+        headerTintColor: "#FFFFFF",
+        headerTitleStyle: {
+          fontWeight: "bold",
+        },
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
-
-  return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        headerShown: false,
-        tabBarButton: HapticTab,
-      }}>
-      <Tabs.Screen
-        name="index"
+        
+    }}
+    >
+        <Tabs.Screen
+        name="home"
         options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+            title: "Acceuil",
+            tabBarIcon: ({ color }) => (
+            <Ionicons name="home-outline" size={24} color={color} />
+            ),
         }}
-      />
-      <Tabs.Screen
-        name="explore"
+        />
+
+        <Tabs.Screen
+        name="feed"
         options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+            title: "Actualités",
+            tabBarIcon: ({ color }) => (
+            <Ionicons name="list-outline" size={24} color={color} />
+            ),
         }}
-      />
+        />
+
+        <Tabs.Screen
+        name="results"
+        options={{
+            title: "Résultats",
+            tabBarIcon: ({ color }) => (
+            <Ionicons name="stats-chart-outline" size={24} color={color} />
+            ),
+        }}
+        />
+
+        <Tabs.Screen
+        name="profile"
+        options={{
+            title: "Profil",
+            tabBarIcon: ({ color }) => (
+            <Ionicons name="person-outline" size={24} color={color} />
+            ),
+        }}
+        />
     </Tabs>
-  );
-}
+    );
+};
+
+export default Layout;
