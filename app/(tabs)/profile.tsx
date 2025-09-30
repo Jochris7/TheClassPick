@@ -1,6 +1,10 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import React, { useState } from 'react';
+import axios, { isAxiosError } from 'axios';
+import * as SecureStore from 'expo-secure-store';
+import React, { useEffect, useState } from 'react';
 import {
+    ActivityIndicator,
+    Alert,
     Dimensions,
     Keyboard,
     KeyboardAvoidingView,
@@ -16,63 +20,124 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 
-// Données factices de post pour l'affichage initial
-const initialPosts = [
-    {
-        id: 1,
-        author: 'Fatou Kone',
-        time: 'Il y a 2 heures',
-        content: 'Fini la cantine ennuyeuse ! Je vise à introduire plus d\'options végétariennes et à organiser un événement sportif inter-classes annuel. 🏆',
-        votes: 23,
-    },
-];
+const BASE_URL = 'http://192.168.252.148:3000'; 
+const CAMPAIGNS_ENDPOINT = `${BASE_URL}/campaigns`;
+
+type CampaignPost = {
+    _id: string;
+    content: string;
+    votes: number;
+    // user: { username: string; fullName: string; } // Assumer une structure utilisateur plus complète
+};
 
 const ProfileScreen = () => {
-    const [posts, setPosts] = useState(initialPosts);
+    const [posts, setPosts] = useState<CampaignPost[]>([]);
     const [isFormVisible, setIsFormVisible] = useState(false);
     const [newPostContent, setNewPostContent] = useState('');
     const [isEditing, setIsEditing] = useState(false);
-    const [editingPostId, setEditingPostId] = useState(null);
+    const [editingPostId, setEditingPostId] = useState<string | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isPosting, setIsPosting] = useState(false);
+    
+    const [fullName, setFullName] = useState('Fatou Kone'); 
+    const [candidateUsername, setCandidateUsername] = useState('Moov'); // Placeholder pour l'appel API
 
-    const handleCreatePost = () => {
+    useEffect(() => {
+        fetchUserCampaigns();
+    }, []);
+
+    const getToken = async () => {
+        const tokenString = await SecureStore.getItemAsync("token");
+        if (!tokenString) throw new Error("Token non trouvé.");
+        const tokenObject = JSON.parse(tokenString);
+        return tokenObject.access_token;
+    };
+    
+    const fetchUserCampaigns = async () => {
+        setIsLoading(true);
+        try {
+            const token = await getToken();
+            
+            const response = await axios.get(`${CAMPAIGNS_ENDPOINT}/${candidateUsername}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.data && response.data.campaign) {
+                 setPosts([response.data.campaign]);
+            } else {
+                 setPosts([]);
+            }
+            
+        } catch (error) {
+            console.error(error);
+            Alert.alert("Erreur", "Impossible de charger vos posts de campagne.");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleCreatePost = async () => {
         if (!newPostContent.trim()) return;
+        setIsPosting(true);
+        
+        try {
+            const token = await getToken();
+            
+            if (isEditing && editingPostId) {
+                
+                Alert.alert("Avertissement", "La modification de post n'est pas encore gérée par l'API backend.");
+                
+            } else {
+                
+                const response = await axios.post(CAMPAIGNS_ENDPOINT, { 
+                    content: newPostContent.trim() 
+                }, {
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+                });
 
-        if (isEditing) {
-            setPosts(posts.map(post => 
-                post.id === editingPostId ? { ...post, content: newPostContent } : post
-            ));
+                if (response.status === 201 && response.data.campaign) {
+                    Alert.alert("Succès", "Post créé !");
+                    setPosts([response.data.campaign, ...posts]);
+                }
+            }
+
+            setNewPostContent('');
+            setIsFormVisible(false);
             setIsEditing(false);
             setEditingPostId(null);
-        } else {
-            const newPost = {
-                id: Date.now(),
-                author: 'Moi (Délégué)',
-                time: 'À l\'instant',
-                content: newPostContent.trim(),
-                votes: 0,
-            };
-            setPosts([newPost, ...posts]);
+            Keyboard.dismiss();
+
+        } catch (err: unknown) {
+            if (isAxiosError(err)) {
+                const errorMessage = err.response?.data?.message || "Erreur lors de la création du post.";
+                Alert.alert('Échec', errorMessage);
+            } else {
+                Alert.alert('Erreur', 'Une erreur inconnue est survenue.');
+            }
+        } finally {
+            setIsPosting(false);
         }
-
-        setNewPostContent('');
-        setIsFormVisible(false);
-        Keyboard.dismiss();
     };
 
-    const handleDeletePost = (id: number) => {
-        setPosts(posts.filter(post => post.id !== id));
+
+    const handleDeletePost = async (id: string) => {
+        
+        Alert.alert("Avertissement", "La suppression de post n'est pas encore gérée par l'API backend.");
+        
     };
 
-    const handleEditPost = (post: any) => {
+    const handleEditPost = (post: CampaignPost) => {
         setNewPostContent(post.content);
-        setEditingPostId(post.id);
+        setEditingPostId(post._id);
         setIsEditing(true);
         setIsFormVisible(true);
     };
 
-    const handleLogout = () => {
-
-        console.log("Déconnexion de l'utilisateur...");
+    const handleLogout = async () => {
+        await SecureStore.deleteItemAsync("token");
+        Alert.alert("Déconnexion", "Vous êtes déconnecté.");
+        
+        // Laisser la redirection à implémenter si l'écran utilise expo-router ou react-navigation
     };
 
     const renderPostForm = () => (
@@ -102,25 +167,37 @@ const ProfileScreen = () => {
                     <Text style={styles.cancelButtonText}>Annuler</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                    style={[styles.formButton, styles.sendButton, !newPostContent.trim() && styles.disabledButton]}
+                    style={[styles.formButton, styles.sendButton, (!newPostContent.trim() || isPosting) && styles.disabledButton]}
                     onPress={handleCreatePost}
-                    disabled={!newPostContent.trim()}
+                    disabled={!newPostContent.trim() || isPosting}
                 >
-                    <Text style={styles.sendButtonText}>
-                        {isEditing ? 'Sauvegarder' : 'Poster'}
-                    </Text>
+                    {isPosting ? (
+                        <ActivityIndicator color="#fff" />
+                    ) : (
+                        <Text style={styles.sendButtonText}>
+                            {isEditing ? 'Sauvegarder' : 'Poster'}
+                        </Text>
+                    )}
                 </TouchableOpacity>
             </View>
         </View>
     );
+    
+    if (isLoading) {
+        return (
+            <SafeAreaView style={[styles.safeArea, { justifyContent: 'center', alignItems: 'center' }]}>
+                <ActivityIndicator size="large" color="#004488" />
+                <Text style={{ marginTop: 10, color: '#333' }}>Chargement de vos campagnes...</Text>
+            </SafeAreaView>
+        );
+    }
 
     return (
         <SafeAreaView style={styles.safeArea}>
-            
             <ScrollView contentContainerStyle={styles.scrollContent}>
                 
                 <View style={styles.profileHeaderContainer}>
-                    <Text style={styles.profileTitle}>Hey, Fatou Kone 👋</Text>
+                    <Text style={styles.profileTitle}>Hey, {fullName} 👋</Text>
                     <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
                         <MaterialIcons name="logout" size={24} color="#333" />
                     </TouchableOpacity>
@@ -128,7 +205,12 @@ const ProfileScreen = () => {
 
                 <TouchableOpacity
                     style={styles.createPostButton}
-                    onPress={() => setIsFormVisible(true)}
+                    onPress={() => {
+                        setIsFormVisible(true);
+                        setIsEditing(false);
+                        setEditingPostId(null);
+                        setNewPostContent('');
+                    }}
                 >
                     <MaterialIcons name="add" size={24} color="#fff" />
                     <Text style={styles.createPostButtonText}>
@@ -140,41 +222,45 @@ const ProfileScreen = () => {
                 
                 <Text style={styles.postsSectionTitle}>Mes posts</Text>
 
-                {posts.map(post => (
-                    <View key={post.id} style={styles.postCard}>
-                        <View style={styles.postHeader}>
-                            <View style={styles.avatar}>
-                                <Text style={styles.avatarText}>
-                                    {post.author.split(' ').map(n => n[0]).join('.').toUpperCase()}
-                                </Text>
+                {posts.length === 0 ? (
+                    <Text style={styles.noPostsText}>Aucun post de campagne trouvé. Créez-en un !</Text>
+                ) : (
+                    posts.map(post => (
+                        <View key={post._id} style={styles.postCard}>
+                            <View style={styles.postHeader}>
+                                <View style={styles.avatar}>
+                                    <Text style={styles.avatarText}>
+                                        {fullName.split(' ').map(n => n[0]).join('.').toUpperCase()}
+                                    </Text>
+                                </View>
+                                <View>
+                                    <Text style={styles.authorName}>{fullName} (Moi)</Text>
+                                    <Text style={styles.postTime}>Récemment</Text>
+                                </View>
                             </View>
-                            <View>
-                                <Text style={styles.authorName}>{post.author}</Text>
-                                <Text style={styles.postTime}>{post.time}</Text>
-                            </View>
-                        </View>
-                        
-                        <Text style={styles.postContent}>{post.content}</Text>
-                        
-                        <View style={styles.postFooter}>
-                            <View style={styles.voteContainer}>
-                                <MaterialIcons name="laptop" size={16} color="#333" />
-                                <Text style={styles.voteCount}>{post.votes} votes</Text>
-                            </View>
+                            
+                            <Text style={styles.postContent}>{post.content}</Text>
+                            
+                            <View style={styles.postFooter}>
+                                <View style={styles.voteContainer}>
+                                    <MaterialIcons name="laptop" size={16} color="#333" />
+                                    <Text style={styles.voteCount}>{post.votes || 0} votes</Text>
+                                </View>
 
-                            <View style={styles.postActions}>
-                                <TouchableOpacity onPress={() => handleEditPost(post)} style={styles.actionButton}>
-                                    <MaterialIcons name="edit" size={20} color="#4287f5" />
-                                    <Text style={styles.actionButtonText}>Modifier</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity onPress={() => handleDeletePost(post.id)} style={styles.actionButton}>
-                                    <MaterialIcons name="delete" size={20} color="#e74c3c" />
-                                    <Text style={[styles.actionButtonText, { color: '#e74c3c' }]}>Supprimer</Text>
-                                </TouchableOpacity>
+                                <View style={styles.postActions}>
+                                    <TouchableOpacity onPress={() => handleEditPost(post)} style={styles.actionButton}>
+                                        <MaterialIcons name="edit" size={20} color="#4287f5" />
+                                        <Text style={styles.actionButtonText}>Modifier</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity onPress={() => handleDeletePost(post._id)} style={styles.actionButton}>
+                                        <MaterialIcons name="delete" size={20} color="#e74c3c" />
+                                        <Text style={[styles.actionButtonText, { color: '#e74c3c' }]}>Supprimer</Text>
+                                    </TouchableOpacity>
+                                </View>
                             </View>
                         </View>
-                    </View>
-                ))}
+                    ))
+                )}
             </ScrollView>
 
             {Platform.OS === 'ios' && isFormVisible && (
@@ -235,6 +321,12 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         color: '#333',
         marginBottom: 15,
+    },
+    noPostsText: {
+        textAlign: 'center',
+        fontSize: 16,
+        color: '#777',
+        marginTop: 20,
     },
     postCard: {
         backgroundColor: '#fff',

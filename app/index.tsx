@@ -1,4 +1,3 @@
-import BASE_URL from '@/BaseUrl';
 import axios, { isAxiosError } from "axios";
 import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
@@ -49,7 +48,7 @@ export default function Index() {
     }
 
     try {
-      const response = await axios.post(`http://192.168.252.244:3000/auth/login`, {
+      const response = await axios.post(`http://192.168.252.148:3000/auth/login`, {
         "email": inputValue.email,
         "password": inputValue.password
       })
@@ -93,7 +92,7 @@ export default function Index() {
 
           <TextInput
             style={styles.input}
-            placeholder="email"
+            placeholder="email ou username"
             placeholderTextColor="#666"
             value={inputValue.email}
             onChangeText={(text) => getInputValue('email', text)}

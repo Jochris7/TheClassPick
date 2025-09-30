@@ -1,7 +1,11 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import axios, { isAxiosError } from 'axios';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import * as SecureStore from 'expo-secure-store';
+import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   Dimensions,
   StatusBar,
   StyleSheet,
@@ -10,88 +14,185 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
 const { width } = Dimensions.get('window');
+
+const BASE_URL = 'http://192.168.252.148:3000'; 
 
 const HomeScreen = () => {
     
     const router = useRouter();
-
-    const [isDelegate, setIsDelegate] = useState(false);
-
-    const handleApply = () => {
-        setIsDelegate(true);
-        
-    };
-
-  return (
     
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor="#4287f5" />
-      <View style={styles.mainContent}>
-        
-        
-        {isDelegate ? (
+    const [isDelegate, setIsDelegate] = useState(false);
+    const [isLoading, setIsLoading] = useState(true); 
+    const [isApplying, setIsApplying] = useState(false); 
+
+    useEffect(() => {
+        checkCandidateStatus();
+    }, []);
+
+    const checkCandidateStatus = async () => {
+        try {
+            const token = await SecureStore.getItemAsync("token");
+
+            if (!token) {
+                setIsLoading(false);
+                return;
+            }
+
+            const tokenObject = JSON.parse(token);
+            const userToken = tokenObject.access_token;
+
+            const response = await axios.get(`${BASE_URL}/me`, {
+                headers: {
+                    'Authorization': `Bearer ${userToken}`
+                }
+            });
+
+            if (response.data && response.data.user) {
+                setIsDelegate(response.data.user.candidate); 
+            } else {
+                 setIsDelegate(false);
+            }
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setIsLoading(false);
+        }
+    }
+
+
+    const handleApply = async () => {
+        setIsApplying(true); 
+
+        try {
+            const token = await SecureStore.getItemAsync("token");
+
+            if (!token) {
+                Alert.alert("Erreur", "Veuillez vous reconnecter pour postuler.");
+                router.push('/');
+                return;
+            }
+
+            const tokenObject = JSON.parse(token);
+            const userToken = tokenObject.access_token;
             
-            <View style={styles.statusContainerAccepted}>
-              <View style={styles.statusBorder} />
-              <View>
-                <Text style={styles.sectionTitle}>Statut de Candidature</Text>
-                <View style={styles.statusContent}>
-                  <MaterialIcons name="check-circle" size={24} color="#2ECC71" style={styles.statusIcon} />
-                  <View>
-                    <Text style={styles.statusTextAccepted}>Candidature Acceptée</Text>
-                    <Text style={styles.statusSubtitle}>Vous pouvez créer des posts de campagne</Text>
-                  </View>
+            const BECOME_CANDIDATE_ENDPOINT = `${BASE_URL}/apply-delegate`; 
+
+            const response = await axios.post(
+                BECOME_CANDIDATE_ENDPOINT, 
+                {}, 
+                {
+                    headers: {
+                        'Authorization': `Bearer ${userToken}` 
+                    }
+                }
+            );
+
+            if (response.status === 200) {
+                Alert.alert("Succès !", "Félicitations, votre candidature est enregistrée !");
+                setIsDelegate(true);
+            }
+
+        } catch (err: unknown) {
+            if (isAxiosError(err)) {
+                const errorMessage = err.response?.data?.message || "Échec de la candidature (Problème de connexion ou route API).";
+
+                Alert.alert('Échec', errorMessage);
+                
+            } else {
+                Alert.alert('Erreur', 'Une erreur inconnue est survenue lors de la postulation.');
+            }
+        } finally {
+            setIsApplying(false);
+        }
+    };
+    
+    if (isLoading) {
+        return (
+            <View style={[styles.safeArea, { justifyContent: 'center', alignItems: 'center' }]}>
+                <ActivityIndicator size="large" color="#4287f5" />
+                <Text style={{ marginTop: 10, color: '#333' }}>Chargement du statut...</Text>
+            </View>
+        );
+    }
+
+    return (
+        <SafeAreaView style={styles.safeArea}>
+            <StatusBar barStyle="light-content" backgroundColor="#4287f5" />
+            <View style={styles.mainContent}>
+                
+                
+                {isDelegate ? (
+                    
+                    <View style={styles.statusContainerAccepted}>
+                      <View style={styles.statusBorder} />
+                      <View>
+                        <Text style={styles.sectionTitle}>Statut de Candidature</Text>
+                        <View style={styles.statusContent}>
+                          <MaterialIcons name="check-circle" size={24} color="#2ECC71" style={styles.statusIcon} />
+                          <View>
+                            <Text style={styles.statusTextAccepted}>Candidature Acceptée</Text>
+                            <Text style={styles.statusSubtitle}>Vous pouvez créer des posts de campagne</Text>
+                          </View>
+                        </View>
+                      </View>
+                    </View>
+                ) : (
+                    
+                    <View style={styles.sectionContainer}>
+                      <Text style={styles.sectionTitle}>Statut de Candidature</Text>
+                      
+                      <TouchableOpacity 
+                          style={styles.primaryButton} 
+                          onPress={handleApply}
+                          disabled={isApplying}
+                      >
+                          {isApplying ? (
+                              <ActivityIndicator color="#fff" />
+                          ) : (
+                              <Text style={styles.primaryButtonText}>
+                                  Postuler comme Délégué
+                              </Text>
+                          )}
+                      </TouchableOpacity>
+                    </View>
+                )}
+
+
+                <View style={styles.cardsRow}>
+                    
+                    <TouchableOpacity style={styles.card} onPress={() => router.push('/feed')}>
+                      <MaterialIcons name="article" size={30} color="#333" />
+                      <Text style={styles.cardTitle}>Fil de Campagne</Text>
+                      <Text style={styles.cardSubtitle}>Voir les posts</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.card} onPress={() => router.push('/results')}>
+                      <MaterialIcons name="trending-up" size={30} color="#2ECC71" />
+                      <Text style={styles.cardTitle}>Résultats</Text>
+                      <Text style={styles.cardSubtitle}>Voir les votes</Text>
+                    </TouchableOpacity>
                 </View>
-              </View>
+
+                
+                {isDelegate && (
+                    <TouchableOpacity 
+                        style={styles.candidateSpace}
+                        onPress={() => router.push('/profile')} 
+                    >
+                      <MaterialIcons name="group" size={30} color="#fff" />
+                      <View>
+                        <Text style={styles.candidateSpaceTitle}>Espace Candidat</Text>
+                        <Text style={styles.candidateSpaceSubtitle}>Gérer mes posts de campagne</Text>
+                      </View>
+                    </TouchableOpacity>
+                )}
+
             </View>
-        ) : (
-            
-            <View style={styles.sectionContainer}>
-              <Text style={styles.sectionTitle}>Statut de Candidature</Text>
-              
-              <TouchableOpacity style={styles.primaryButton} onPress={handleApply}>
-                <Text style={styles.primaryButtonText}>
-                  Postuler comme Délégué
-                </Text>
-              </TouchableOpacity>
-            </View>
-        )}
 
-
-        <View style={styles.cardsRow}>
-          
-          <TouchableOpacity style={styles.card} onPress={() => router.push('/feed')}>
-            <MaterialIcons name="article" size={30} color="#333" />
-            <Text style={styles.cardTitle}>Fil de Campagne</Text>
-            <Text style={styles.cardSubtitle}>Voir les posts</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.card} onPress={() => router.push('/results')}>
-            <MaterialIcons name="trending-up" size={30} color="#2ECC71" />
-            <Text style={styles.cardTitle}>Résultats</Text>
-            <Text style={styles.cardSubtitle}>Voir les votes</Text>
-          </TouchableOpacity>
-        </View>
-
-        
-        {isDelegate && (
-            <TouchableOpacity 
-              style={styles.candidateSpace}
-              onPress={() => router.push('/profile')} 
-            >
-              <MaterialIcons name="group" size={30} color="#fff" />
-              <View>
-                <Text style={styles.candidateSpaceTitle}>Espace Candidat</Text>
-                <Text style={styles.candidateSpaceSubtitle}>Gérer mes posts de campagne</Text>
-              </View>
-            </TouchableOpacity>
-        )}
-
-      </View>
-
-    </SafeAreaView>
-  );
+        </SafeAreaView>
+    );
 };
 
 export default HomeScreen;

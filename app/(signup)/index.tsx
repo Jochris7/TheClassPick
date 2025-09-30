@@ -1,4 +1,3 @@
-import BASE_URL from '@/BaseUrl';
 import { Ionicons } from '@expo/vector-icons';
 import axios, { isAxiosError } from "axios";
 import { useRouter } from 'expo-router';
@@ -56,7 +55,7 @@ const SignUp = () => {
 
     try {
 
-      const response = await axios.post(/*`/*${BASE_URL}*/`http://192.168.252.244:3000/auth/register`, {
+      const response = await axios.post(`http://192.168.252.148:3000/auth/register`, {
         "email": inputValue.email,
         "password": inputValue.password,
         "username": inputValue.username,
