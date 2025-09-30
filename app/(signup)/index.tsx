@@ -1,11 +1,15 @@
-//import BASE_URL from '@/BaseUrl';
+import BASE_URL from '@/BaseUrl';
 import { Ionicons } from '@expo/vector-icons';
-import axios from "axios";
+import axios, { isAxiosError } from "axios";
 import { useRouter } from 'expo-router';
+import * as SecureStore from 'expo-secure-store';
 import { useState } from 'react';
 import {
   Alert,
   Dimensions,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -13,144 +17,159 @@ import {
   TouchableOpacity,
   View
 } from "react-native";
-import { SafeAreaView } from 'react-native-safe-area-context';
-import secureLocalStorage from "react-secure-storage";
 
 
 const { height } = Dimensions.get("window");
 const CLASSES = ['Prépa 1', 'Prépa 2', 'Ing 1', 'Ing 2', 'Ing 3'];
 
+interface InputState {
+  email: string;
+  password: string;
+  username: string;
+  userClass: string;
+}
 
 const SignUp = () => {
 
-const BASE_URL = "http://192.168.1.3:3000"
-const router = useRouter();
- const [isClassDropdownOpen, setIsClassDropdownOpen] = useState(false);
+  const router = useRouter();
+  const [isClassDropdownOpen, setIsClassDropdownOpen] = useState(false);
 
-  const [inputValue, setInputValue] = useState({
-    email : '',
+  const [inputValue, setInputValue] = useState<InputState>({
+    email: '',
     password: '',
-    username:'',
-    userClass:''
+    username: '',
+    userClass: ''
   })
 
-  const getInputValue = (keyValue : string,valueChange:string)=>{
-      setInputValue({
-        ...inputValue,
-        [keyValue]: valueChange
-      })
+  const getInputValue = (keyValue: keyof InputState, valueChange: string) => {
+    setInputValue({
+      ...inputValue,
+      [keyValue]: valueChange
+    })
   }
 
-  const handleSignUp = async () =>{
-    if(!inputValue.email || !inputValue.password || !inputValue.username){
-        Alert.alert('Veuillez entrer votre mot de passe ou votre email ou username')
-        return
+  const handleSignUp = async () => {
+    if (!inputValue.email || !inputValue.password || !inputValue.username || !inputValue.userClass) {
+      Alert.alert('Erreur', 'Veuillez remplir tous les champs (email, mot de passe, nom d\'utilisateur et classe).')
+      return
     }
 
-    try{
+    try {
 
-      const response = await axios.post(`${BASE_URL}/auth/register`,{
-        "email":inputValue.email,
-        "password":inputValue.password,
-        "username":inputValue.username,
-        "class":inputValue.userClass
+      const response = await axios.post(`${BASE_URL}/auth/register`, {
+        "email": inputValue.email,
+        "password": inputValue.password,
+        "username": inputValue.username,
+        "_class": inputValue.userClass
       },
-      { headers:{
-          'Content-Type': 'application/json'
+        {
+          headers: {
+            'Content-Type': 'application/json'
+          }
         }
-      }
-  )
+      )
 
-     if(response.data && response.data.access_token){
-        console.log(" token : ",response.data.access_token)
-        secureLocalStorage.setItem("token",response.data.access_token)
+      if (response.data && response.data.access_token) {
+        await SecureStore.setItemAsync("token", response.data.access_token)
         router.push('/(tabs)/home')
-     }
-    }catch(err){
-      console.log("erreur lors de l'inscription : ", (err as any))
+      }
+    } catch (err: unknown) {
+      if (isAxiosError(err))  {
+        Alert.alert('Erreur d\'inscription', err.response?.data?.message || err.message);
+      } else if (err instanceof Error) {
+        Alert.alert('Erreur d\'inscription', err.message);
+      } else {
+        Alert.alert('Erreur d\'inscription', 'Une erreur inconnue est survenue.');
+      }
     }
   }
-  
+
 
   return (
-    <SafeAreaView style={styles.container}>
-          <StatusBar barStyle="light-content" backgroundColor="#4285F4" />
-    
-          {/* Partie Bleue Supérieure */}
-          <View style={styles.topSection}>
-            <Text style={styles.welcomeText}>Welcome to</Text>
-            <Text style={styles.appNameText}>TheClassPick</Text>
-            <Text style={styles.taglineText}>
-              La plateforme mobile qui permet d'élire un délégué de classe de façon
-              simple et rapide
-            </Text>
-          </View>
-    
-          <View style={styles.loginCard}>
-            {/* Changement : Titre en français pour cohérence */}
-            <Text style={styles.cardTitle}>Inscription Utilisateur</Text>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={styles.container}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+    >
+      <StatusBar barStyle="light-content" backgroundColor="#4285F4" />
 
-            <TextInput
-              style={styles.input}
-              placeholder="Username"
-              placeholderTextColor="#666"
-              value={inputValue.username}
-              onChangeText={(text:string)=>getInputValue('username',text)}
-              
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        <View style={styles.topSection}>
+          <Text style={styles.welcomeText}>Welcome to</Text>
+          <Text style={styles.appNameText}>TheClassPick</Text>
+          <Text style={styles.taglineText}>
+            La plateforme mobile qui permet d'élire un délégué de classe de façon
+            simple et rapide
+          </Text>
+        </View>
+
+        <View style={styles.loginCard}>
+          <Text style={styles.cardTitle}>Inscription Utilisateur</Text>
+
+          <TextInput
+            style={styles.input}
+            placeholder="Username"
+            placeholderTextColor="#666"
+            value={inputValue.username}
+            onChangeText={(text) => getInputValue('username', text)}
+            autoCapitalize="none"
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="email"
+            placeholderTextColor="#666"
+            value={inputValue.email}
+            onChangeText={(text) => getInputValue('email', text)}
+            keyboardType="email-address"
+            autoCapitalize="none"
+          />
+          <TouchableOpacity
+            style={styles.dropdownButton}
+            onPress={() => setIsClassDropdownOpen(!isClassDropdownOpen)}
+          >
+            <Text style={{ color: inputValue.userClass ? '#000' : '#666' }}>
+              {inputValue.userClass || "Sélectionner une classe..."}
+            </Text>
+            <Ionicons
+              name={isClassDropdownOpen ? "chevron-up" : "chevron-down"}
+              size={24}
+              color="#666"
             />
-            <TextInput
-              style={styles.input}
-              placeholder="email"
-              placeholderTextColor="#666"
-              value={inputValue.email}
-              onChangeText={(text:string)=>getInputValue('email',text)}
-            />
-             <TouchableOpacity 
-                style={styles.dropdownButton}
-                onPress={() => setIsClassDropdownOpen(!isClassDropdownOpen)}
-              >
-                <Text style={{ color: inputValue.userClass ? '#000' : '#666' }}>
-                  {inputValue.userClass || "Sélectionner une classe..."}
-                </Text>
-                <Ionicons
-                  name={isClassDropdownOpen ? "chevron-up" : "chevron-down"}
-                  size={24}
-                  color="#666"
-                />
-              </TouchableOpacity>
-              
-              {isClassDropdownOpen && (
-                <View style={styles.dropdownContainer}>
-                  {CLASSES.map((classe, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      style={styles.dropdownItem}
-                      onPress={() => {
-                        getInputValue('userClass', classe);
-                        setIsClassDropdownOpen(false);
-                      }}
-                    >
-                      <Text>{classe}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-        )}
-            <TextInput
-              style={styles.input}
-              placeholder="Mot de passe"
-              placeholderTextColor="#666"
-              value={inputValue.password}
-              onChangeText={(text:string)=>getInputValue('password',text)}
-              secureTextEntry
-            />
-            
-    
-            <TouchableOpacity style={styles.loginButton} onPress={handleSignUp} >
-              <Text style={styles.loginButtonText}>S'INSCRIRE</Text>
-            </TouchableOpacity>
-    
-          </View>
-    </SafeAreaView>
+          </TouchableOpacity>
+
+          {isClassDropdownOpen && (
+            <View style={styles.dropdownContainer}>
+              {CLASSES.map((classe, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={styles.dropdownItem}
+                  onPress={() => {
+                    getInputValue('userClass', classe);
+                    setIsClassDropdownOpen(false);
+                  }}
+                >
+                  <Text>{classe}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+          <TextInput
+            style={styles.input}
+            placeholder="Mot de passe"
+            placeholderTextColor="#666"
+            value={inputValue.password}
+            onChangeText={(text) => getInputValue('password', text)}
+            secureTextEntry
+          />
+
+
+          <TouchableOpacity style={styles.loginButton} onPress={handleSignUp} >
+            <Text style={styles.loginButtonText}>S'INSCRIRE</Text>
+          </TouchableOpacity>
+
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   )
 }
 
@@ -161,7 +180,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#4285F4",
   },
-  
+  scrollContent: {
+    flexGrow: 1,
+  },
+
   topSection: {
     height: height * 0.4,
     justifyContent: "flex-end",

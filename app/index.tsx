@@ -1,11 +1,14 @@
-/* eslint-disable react/no-unescaped-entities */
 import BASE_URL from '@/BaseUrl';
-import axios from "axios";
+import axios, { isAxiosError } from "axios";
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import * as SecureStore from 'expo-secure-store';
+import React, { useState } from 'react';
 import {
   Alert,
   Dimensions,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -13,111 +16,123 @@ import {
   TouchableOpacity,
   View
 } from "react-native";
-import { SafeAreaView } from 'react-native-safe-area-context';
-import secureLocalStorage from "react-secure-storage";
-
-
 
 const { height } = Dimensions.get("window");
+
+// Définition du type pour l'état du formulaire
+interface InputState {
+  email: string;
+  password: string;
+}
 
 export default function Index() {
   const router = useRouter();
 
-  const [inputValue, setInputValue] = useState({
-    email : '',
+  // Utilisation du type InputState
+  const [inputValue, setInputValue] = useState<InputState>({
+    email: '',
     password: ''
   })
 
-  const getInputValue = (keyValue : string,valueChange:string)=>{
-      setInputValue({
-        ...inputValue,
-        [keyValue]: valueChange
-      })
+  // Typage explicite des paramètres : keyValue est la clé de l'objet (email ou password) et valueChange est la nouvelle valeur (string).
+  const getInputValue = (keyValue: keyof InputState, valueChange: string) => {
+    setInputValue({
+      ...inputValue,
+      [keyValue]: valueChange
+    })
   }
 
-  const handleLogin = async () =>{
-    if(!inputValue.email || !inputValue.password){
-        Alert.alert('Veuillez entrer votre mot de passe ou votre email')
-        return
+  const handleLogin = async () => {
+    if (!inputValue.email || !inputValue.password) {
+      Alert.alert('Veuillez entrer votre mot de passe ou votre email')
+      return
     }
 
-    try{
-
-      const response = await axios.post(`${BASE_URL}/auth/login`,{
-        "email":inputValue.email,
-        "password":inputValue.password
+    try {
+      const response = await axios.post(`${BASE_URL}/auth/login`, {
+        "email": inputValue.email,
+        "password": inputValue.password
       })
 
-     if(response.data && response.data.access_token){
-        console.log(" token : ",response.data)
-        secureLocalStorage.setItem("token",response.data.access_token)
+      if (response.data && response.data.access_token) {
+        console.log(" token : ", response.data)
+        await SecureStore.setItemAsync("token", response.data.access_token)
         router.push('/(tabs)/home')
-     }
-    }catch(err){
-      console.log("erreur lors de la connexion : ", (err as any).message)
+      }
+    } catch (err: unknown) {
+      if (isAxiosError(err))  {
+        console.log("erreur lors de la connexion : ", err.message)
+      } else if (err instanceof Error) {
+        console.log("erreur lors de la connexion : ", err.message)
+      } else {
+        console.log("erreur lors de la connexion : une erreur inconnue est survenue")
+      }
     }
   }
-  
+
 
   return (
-    <SafeAreaView style={styles.container}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={styles.container}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+    >
       <StatusBar barStyle="light-content" backgroundColor="#4285F4" />
 
-      {/* Partie Bleue Supérieure */}
-      <View style={styles.topSection}>
-        <Text style={styles.welcomeText}>Welcome to</Text>
-        <Text style={styles.appNameText}>TheClassPick</Text>
-        <Text style={styles.taglineText}>
-          La plateforme mobile qui permet d'élire un délégué de classe de façon
-          simple et rapide
-        </Text>
-      </View>
-
-      <View style={styles.loginCard}>
-        {/* Changement : Titre en français pour cohérence */}
-        <Text style={styles.cardTitle}>Connexion Utilisateur</Text>
-
-        <TextInput
-          style={styles.input}
-          placeholder="email"
-          placeholderTextColor="#666"
-          value={inputValue.email}
-          onChangeText={(text:string)=>getInputValue('email',text)}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Mot de passe"
-          placeholderTextColor="#666"
-          value={inputValue.password}
-          onChangeText={(text:string)=>getInputValue('password',text)}
-          secureTextEntry
-        />
-
-        <TouchableOpacity style={styles.loginButton} onPress={handleLogin} >
-          <Text style={styles.loginButtonText}>SE CONNECTER</Text>
-        </TouchableOpacity>
-
-        <View style={styles.signupContainer}>
-          <Text style={styles.signupText}>Pas de compte ? </Text>
-          <TouchableOpacity onPress={()=>router.push('/(signup)')}  >
-            {/* Changement CRUCIAL de Navigation : Dirige vers une page d'inscription (ex: 'signup') au lieu de la page d'accueil */}
-            <Text
-              style={styles.signupLink} > S'inscrire
-            </Text >
-          </TouchableOpacity>
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        {/* Partie Bleue Supérieure */}
+        <View style={styles.topSection}>
+          <Text style={styles.welcomeText}>Welcome to</Text>
+          <Text style={styles.appNameText}>TheClassPick</Text>
+          <Text style={styles.taglineText}> La plateforme mobile qui permet d'élire un délégué de classe de façon simple et rapide </Text>
         </View>
-      </View>
-    </SafeAreaView>
+
+        <View style={styles.loginCard}>
+          {/* Changement : Titre en français pour cohérence */}
+          <Text style={styles.cardTitle}>Connexion Utilisateur</Text>
+
+          <TextInput
+            style={styles.input}
+            placeholder="email"
+            placeholderTextColor="#666"
+            value={inputValue.email}
+            onChangeText={(text) => getInputValue('email', text)}
+            keyboardType="email-address"
+            autoCapitalize="none"
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Mot de passe"
+            placeholderTextColor="#666"
+            value={inputValue.password}
+            onChangeText={(text) => getInputValue('password', text)}
+            secureTextEntry
+          />
+
+          <TouchableOpacity style={styles.loginButton} onPress={handleLogin} >
+            <Text style={styles.loginButtonText}>SE CONNECTER</Text>
+          </TouchableOpacity>
+
+          <View style={styles.signupContainer}>
+            <Text style={styles.signupText}>Pas de compte ? </Text>
+            <TouchableOpacity onPress={() => router.push('/(signup)')}  >
+              <Text style={styles.signupLink} > S'inscrire </Text >
+            </TouchableOpacity>
+          </View>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
-// Les styles restent inchangés selon votre demande, avec une indentation propre.
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#4285F4",
   },
-  
+  scrollContent: {
+    flexGrow: 1,
+  },
   topSection: {
     height: height * 0.4,
     justifyContent: "flex-end",
