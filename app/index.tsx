@@ -49,7 +49,7 @@ export default function Index() {
     }
 
     try {
-      const response = await axios.post(`${BASE_URL}/auth/login`, {
+      const response = await axios.post(`http://192.168.252.244:3000/auth/login`, {
         "email": inputValue.email,
         "password": inputValue.password
       })

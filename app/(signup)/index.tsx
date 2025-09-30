@@ -56,18 +56,14 @@ const SignUp = () => {
 
     try {
 
-      const response = await axios.post(`${BASE_URL}/auth/register`, {
+      const response = await axios.post(/*`/*${BASE_URL}*/`http://192.168.252.244:3000/auth/register`, {
         "email": inputValue.email,
         "password": inputValue.password,
         "username": inputValue.username,
         "_class": inputValue.userClass
-      },
-        {
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
-      )
+      }
+    )
+
 
       if (response.data && response.data.access_token) {
         await SecureStore.setItemAsync("token", response.data.access_token)
@@ -75,11 +71,15 @@ const SignUp = () => {
       }
     } catch (err: unknown) {
       if (isAxiosError(err))  {
+                console.log({err})
         Alert.alert('Erreur d\'inscription', err.response?.data?.message || err.message);
       } else if (err instanceof Error) {
         Alert.alert('Erreur d\'inscription', err.message);
+        console.log({err})
       } else {
         Alert.alert('Erreur d\'inscription', 'Une erreur inconnue est survenue.');
+          console.log({err})
+
       }
     }
   }
