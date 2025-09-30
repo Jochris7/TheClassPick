@@ -1,3 +1,4 @@
+/* eslint-disable react/no-unescaped-entities */
 import BASE_URL from '@/BaseUrl';
 import axios from "axios";
 import { useRouter } from 'expo-router';
@@ -100,7 +101,7 @@ export default function Index() {
           <Text style={styles.signupText}>Pas de compte ? </Text>
           <TouchableOpacity onPress={()=>router.push('/(signup)')}  >
             {/* Changement CRUCIAL de Navigation : Dirige vers une page d'inscription (ex: 'signup') au lieu de la page d'accueil */}
-            <Text 
+            <Text
               style={styles.signupLink} > S'inscrire
             </Text >
           </TouchableOpacity>
