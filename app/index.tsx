@@ -1,19 +1,62 @@
+import BASE_URL from '@/BaseUrl';
+import axios from "axios";
 import { useRouter } from 'expo-router';
+import { useState } from 'react';
 import {
+  Alert,
   Dimensions,
   StatusBar,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import { SafeAreaView } from 'react-native-safe-area-context';
+import secureLocalStorage from "react-secure-storage";
+
+
 
 const { height } = Dimensions.get("window");
 
 export default function Index() {
   const router = useRouter();
+
+  const [inputValue, setInputValue] = useState({
+    email : '',
+    password: ''
+  })
+
+  const getInputValue = (keyValue : string,valueChange:string)=>{
+      setInputValue({
+        ...inputValue,
+        [keyValue]: valueChange
+      })
+  }
+
+  const handleLogin = async () =>{
+    if(!inputValue.email || !inputValue.password){
+        Alert.alert('Veuillez entrer votre mot de passe ou votre email')
+        return
+    }
+
+    try{
+
+      const response = await axios.post(`${BASE_URL}/auth/login`,{
+        "email":inputValue.email,
+        "password":inputValue.password
+      })
+
+     if(response.data && response.data.access_token){
+        console.log(" token : ",response.data)
+        secureLocalStorage.setItem("token",response.data.access_token)
+        router.push('/(tabs)/home')
+     }
+    }catch(err){
+      console.log("erreur lors de la connexion : ", (err as any).message)
+    }
+  }
+  
 
   return (
     <SafeAreaView style={styles.container}>
@@ -35,23 +78,27 @@ export default function Index() {
 
         <TextInput
           style={styles.input}
-          placeholder="Username ou email"
+          placeholder="email"
           placeholderTextColor="#666"
+          value={inputValue.email}
+          onChangeText={(text:string)=>getInputValue('email',text)}
         />
         <TextInput
           style={styles.input}
           placeholder="Mot de passe"
           placeholderTextColor="#666"
+          value={inputValue.password}
+          onChangeText={(text:string)=>getInputValue('password',text)}
           secureTextEntry
         />
 
-        <TouchableOpacity style={styles.loginButton}>
-          <Text style={styles.loginButtonText} onPress={() => router.push('/(tabs)/home')}>SE CONNECTER</Text>
+        <TouchableOpacity style={styles.loginButton} onPress={handleLogin} >
+          <Text style={styles.loginButtonText}>SE CONNECTER</Text>
         </TouchableOpacity>
 
         <View style={styles.signupContainer}>
           <Text style={styles.signupText}>Pas de compte ? </Text>
-          <TouchableOpacity>
+          <TouchableOpacity onPress={()=>router.push('/(signup)')}  >
             {/* Changement CRUCIAL de Navigation : Dirige vers une page d'inscription (ex: 'signup') au lieu de la page d'accueil */}
             <Text 
               style={styles.signupLink} > S'inscrire
