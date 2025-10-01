@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const BASE_URL = 'http://192.168.1.10:3000';
+const BASE_URL = "http://192.168.1.8:3000";
 
 interface JwtPayload {
     _id: string;
