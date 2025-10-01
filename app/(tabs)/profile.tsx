@@ -1,14 +1,13 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import axios, { isAxiosError } from 'axios';
+import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
+import { jwtDecode } from 'jwt-decode';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
-    Dimensions,
     Keyboard,
-    KeyboardAvoidingView,
-    Platform,
     ScrollView,
     StyleSheet,
     Text,
@@ -18,100 +17,147 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const { width } = Dimensions.get('window');
+const BASE_URL = 'http://192.168.1.10:3000';
 
-const BASE_URL = 'http://192.168.252.148:3000'; 
-const CAMPAIGNS_ENDPOINT = `${BASE_URL}/campaigns`;
-
-type CampaignPost = {
+interface JwtPayload {
     _id: string;
-    content: string;
-    votes: number;
-    // user: { username: string; fullName: string; } // Assumer une structure utilisateur plus complète
+    username: string;
+    email: string;
+    class: string;
+    candidate: boolean;
+    voted: boolean;
+}
+
+type Campaign = {
+    _id: string;
+    title: string;
+    description: string;
+    createdAt: string;
+    candidate: string;
 };
 
 const ProfileScreen = () => {
-    const [posts, setPosts] = useState<CampaignPost[]>([]);
+    const router = useRouter();
+    const [campaigns, setCampaigns] = useState<Campaign[]>([]);
     const [isFormVisible, setIsFormVisible] = useState(false);
-    const [newPostContent, setNewPostContent] = useState('');
-    const [isEditing, setIsEditing] = useState(false);
-    const [editingPostId, setEditingPostId] = useState<string | null>(null);
+    const [newTitle, setNewTitle] = useState('');
+    const [newDescription, setNewDescription] = useState('');
     const [isLoading, setIsLoading] = useState(true);
     const [isPosting, setIsPosting] = useState(false);
     
-    const [fullName, setFullName] = useState('Fatou Kone'); 
-    const [candidateUsername, setCandidateUsername] = useState('Moov'); // Placeholder pour l'appel API
+    const [username, setUsername] = useState('');
+    const [userEmail, setUserEmail] = useState('');
 
     useEffect(() => {
-        fetchUserCampaigns();
+        loadUserInfoAndCampaigns();
     }, []);
 
-    const getToken = async () => {
-        const tokenString = await SecureStore.getItemAsync("token");
-        if (!tokenString) throw new Error("Token non trouvé.");
-        const tokenObject = JSON.parse(tokenString);
-        return tokenObject.access_token;
-    };
-    
-    const fetchUserCampaigns = async () => {
+    const loadUserInfoAndCampaigns = async () => {
         setIsLoading(true);
         try {
-            const token = await getToken();
+            const token = await SecureStore.getItemAsync("token");
             
-            const response = await axios.get(`${CAMPAIGNS_ENDPOINT}/${candidateUsername}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            if (response.data && response.data.campaign) {
-                 setPosts([response.data.campaign]);
-            } else {
-                 setPosts([]);
+            if (!token) {
+                Alert.alert("Erreur", "Veuillez vous reconnecter");
+                router.push('/');
+                return;
             }
+
+            // Décoder le JWT pour avoir les infos utilisateur
+            const decoded = jwtDecode<JwtPayload>(token);
+            setUsername(decoded.username);
+            setUserEmail(decoded.email);
+
+            // Récupérer les campagnes de l'utilisateur
+            await fetchUserCampaigns(decoded.username, token);
             
         } catch (error) {
-            console.error(error);
-            Alert.alert("Erreur", "Impossible de charger vos posts de campagne.");
+            console.error("Erreur chargement profil:", error);
+            Alert.alert("Erreur", "Impossible de charger votre profil");
         } finally {
             setIsLoading(false);
         }
     };
+    
+    const fetchUserCampaigns = async (candidateUsername: string, token: string) => {
+        try {
+            // GET /campaigns/:usernameCandidate
+            const response = await axios.get(
+                `${BASE_URL}/campaigns/${candidateUsername}`, 
+                {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                }
+            );
 
-    const handleCreatePost = async () => {
-        if (!newPostContent.trim()) return;
+            console.log("Réponse campaigns:", response.data);
+
+            // Le backend renvoie { campaign: {...} } pour un seul post
+            if (response.data && response.data.campaign) {
+                setCampaigns([response.data.campaign]);
+            } else {
+                setCampaigns([]);
+            }
+            
+        } catch (error) {
+            if (isAxiosError(error) && error.response?.status === 404) {
+                // Aucune campagne trouvée, c'est normal
+                setCampaigns([]);
+            } else {
+                console.error("Erreur fetch campaigns:", error);
+            }
+        }
+    };
+
+    const handleCreateCampaign = async () => {
+        if (!newTitle.trim() || !newDescription.trim()) {
+            Alert.alert("Attention", "Veuillez remplir le titre et la description");
+            return;
+        }
+        
         setIsPosting(true);
         
         try {
-            const token = await getToken();
+            const token = await SecureStore.getItemAsync("token");
             
-            if (isEditing && editingPostId) {
-                
-                Alert.alert("Avertissement", "La modification de post n'est pas encore gérée par l'API backend.");
-                
-            } else {
-                
-                const response = await axios.post(CAMPAIGNS_ENDPOINT, { 
-                    content: newPostContent.trim() 
-                }, {
-                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
-                });
-
-                if (response.status === 201 && response.data.campaign) {
-                    Alert.alert("Succès", "Post créé !");
-                    setPosts([response.data.campaign, ...posts]);
-                }
+            if (!token) {
+                Alert.alert("Erreur", "Veuillez vous reconnecter");
+                router.push('/');
+                return;
             }
+            
+            // POST /campaigns avec { title, description }
+            const response = await axios.post(
+                `${BASE_URL}/campaigns`, 
+                { 
+                    title: newTitle.trim(),
+                    description: newDescription.trim()
+                }, 
+                {
+                    headers: { 
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
 
-            setNewPostContent('');
-            setIsFormVisible(false);
-            setIsEditing(false);
-            setEditingPostId(null);
-            Keyboard.dismiss();
+            console.log("Réponse création campagne:", response.data);
+
+            if (response.status === 201 && response.data.campaign) {
+                Alert.alert("Succès", "Campagne créée avec succès !");
+                setCampaigns([response.data.campaign, ...campaigns]);
+                setNewTitle('');
+                setNewDescription('');
+                setIsFormVisible(false);
+                Keyboard.dismiss();
+            }
 
         } catch (err: unknown) {
             if (isAxiosError(err)) {
-                const errorMessage = err.response?.data?.message || "Erreur lors de la création du post.";
+                console.error("Erreur création campagne:", err.response?.data);
+                const errorMessage = err.response?.data?.message || "Erreur lors de la création.";
                 Alert.alert('Échec', errorMessage);
             } else {
+                console.error("Erreur inconnue:", err);
                 Alert.alert('Erreur', 'Une erreur inconnue est survenue.');
             }
         } finally {
@@ -119,64 +165,58 @@ const ProfileScreen = () => {
         }
     };
 
-
-    const handleDeletePost = async (id: string) => {
-        
-        Alert.alert("Avertissement", "La suppression de post n'est pas encore gérée par l'API backend.");
-        
-    };
-
-    const handleEditPost = (post: CampaignPost) => {
-        setNewPostContent(post.content);
-        setEditingPostId(post._id);
-        setIsEditing(true);
-        setIsFormVisible(true);
-    };
-
     const handleLogout = async () => {
         await SecureStore.deleteItemAsync("token");
         Alert.alert("Déconnexion", "Vous êtes déconnecté.");
-        
-        // Laisser la redirection à implémenter si l'écran utilise expo-router ou react-navigation
+        router.push('/');
     };
 
-    const renderPostForm = () => (
-        <View style={styles.postFormContainer}>
-            <Text style={styles.formTitle}>
-                {isEditing ? 'Modifier votre post' : 'Écrire un nouveau post'}
-            </Text>
+    const renderCampaignForm = () => (
+        <View style={styles.formContainer}>
+            <Text style={styles.formTitle}>Créer une nouvelle campagne</Text>
+            
             <TextInput
-                style={styles.postInput}
-                placeholder="Exprimez vos idées pour la campagne ici..."
+                style={styles.titleInput}
+                placeholder="Titre de la campagne"
+                value={newTitle}
+                onChangeText={setNewTitle}
+            />
+            
+            <TextInput
+                style={styles.descriptionInput}
+                placeholder="Description de votre campagne..."
                 multiline
                 numberOfLines={4}
-                value={newPostContent}
-                onChangeText={setNewPostContent}
+                value={newDescription}
+                onChangeText={setNewDescription}
             />
+            
             <View style={styles.formButtonRow}>
                 <TouchableOpacity
                     style={[styles.formButton, styles.cancelButton]}
                     onPress={() => {
                         setIsFormVisible(false);
-                        setIsEditing(false);
-                        setEditingPostId(null);
-                        setNewPostContent('');
+                        setNewTitle('');
+                        setNewDescription('');
                         Keyboard.dismiss();
                     }}
                 >
                     <Text style={styles.cancelButtonText}>Annuler</Text>
                 </TouchableOpacity>
+                
                 <TouchableOpacity
-                    style={[styles.formButton, styles.sendButton, (!newPostContent.trim() || isPosting) && styles.disabledButton]}
-                    onPress={handleCreatePost}
-                    disabled={!newPostContent.trim() || isPosting}
+                    style={[
+                        styles.formButton, 
+                        styles.sendButton, 
+                        (!newTitle.trim() || !newDescription.trim() || isPosting) && styles.disabledButton
+                    ]}
+                    onPress={handleCreateCampaign}
+                    disabled={!newTitle.trim() || !newDescription.trim() || isPosting}
                 >
                     {isPosting ? (
                         <ActivityIndicator color="#fff" />
                     ) : (
-                        <Text style={styles.sendButtonText}>
-                            {isEditing ? 'Sauvegarder' : 'Poster'}
-                        </Text>
+                        <Text style={styles.sendButtonText}>Créer</Text>
                     )}
                 </TouchableOpacity>
             </View>
@@ -187,7 +227,7 @@ const ProfileScreen = () => {
         return (
             <SafeAreaView style={[styles.safeArea, { justifyContent: 'center', alignItems: 'center' }]}>
                 <ActivityIndicator size="large" color="#004488" />
-                <Text style={{ marginTop: 10, color: '#333' }}>Chargement de vos campagnes...</Text>
+                <Text style={{ marginTop: 10, color: '#333' }}>Chargement...</Text>
             </SafeAreaView>
         );
     }
@@ -197,75 +237,55 @@ const ProfileScreen = () => {
             <ScrollView contentContainerStyle={styles.scrollContent}>
                 
                 <View style={styles.profileHeaderContainer}>
-                    <Text style={styles.profileTitle}>Hey, {fullName} 👋</Text>
+                    <View>
+                        <Text style={styles.profileTitle}>Hey, {username} 👋</Text>
+                        <Text style={styles.profileSubtitle}>{userEmail}</Text>
+                    </View>
                     <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
                         <MaterialIcons name="logout" size={24} color="#333" />
                     </TouchableOpacity>
                 </View>
 
                 <TouchableOpacity
-                    style={styles.createPostButton}
+                    style={styles.createButton}
                     onPress={() => {
                         setIsFormVisible(true);
-                        setIsEditing(false);
-                        setEditingPostId(null);
-                        setNewPostContent('');
+                        setNewTitle('');
+                        setNewDescription('');
                     }}
                 >
                     <MaterialIcons name="add" size={24} color="#fff" />
-                    <Text style={styles.createPostButtonText}>
-                        Créer un post
-                    </Text>
+                    <Text style={styles.createButtonText}>Créer une campagne</Text>
                 </TouchableOpacity>
 
-                {isFormVisible && renderPostForm()}
+                {isFormVisible && renderCampaignForm()}
                 
-                <Text style={styles.postsSectionTitle}>Mes posts</Text>
+                <Text style={styles.sectionTitle}>Mes campagnes</Text>
 
-                {posts.length === 0 ? (
-                    <Text style={styles.noPostsText}>Aucun post de campagne trouvé. Créez-en un !</Text>
+                {campaigns.length === 0 ? (
+                    <Text style={styles.noDataText}>
+                        Aucune campagne trouvée. Créez votre première campagne !
+                    </Text>
                 ) : (
-                    posts.map(post => (
-                        <View key={post._id} style={styles.postCard}>
-                            <View style={styles.postHeader}>
-                                <View style={styles.avatar}>
-                                    <Text style={styles.avatarText}>
-                                        {fullName.split(' ').map(n => n[0]).join('.').toUpperCase()}
+                    campaigns.map(campaign => (
+                        <View key={campaign._id} style={styles.campaignCard}>
+                            <View style={styles.cardHeader}>
+                                <MaterialIcons name="campaign" size={24} color="#004488" />
+                                <View style={styles.cardHeaderText}>
+                                    <Text style={styles.campaignTitle}>{campaign.title}</Text>
+                                    <Text style={styles.campaignDate}>
+                                        {new Date(campaign.createdAt).toLocaleDateString('fr-FR')}
                                     </Text>
                                 </View>
-                                <View>
-                                    <Text style={styles.authorName}>{fullName} (Moi)</Text>
-                                    <Text style={styles.postTime}>Récemment</Text>
-                                </View>
                             </View>
                             
-                            <Text style={styles.postContent}>{post.content}</Text>
-                            
-                            <View style={styles.postFooter}>
-                                <View style={styles.voteContainer}>
-                                    <MaterialIcons name="laptop" size={16} color="#333" />
-                                    <Text style={styles.voteCount}>{post.votes || 0} votes</Text>
-                                </View>
-
-                                <View style={styles.postActions}>
-                                    <TouchableOpacity onPress={() => handleEditPost(post)} style={styles.actionButton}>
-                                        <MaterialIcons name="edit" size={20} color="#4287f5" />
-                                        <Text style={styles.actionButtonText}>Modifier</Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity onPress={() => handleDeletePost(post._id)} style={styles.actionButton}>
-                                        <MaterialIcons name="delete" size={20} color="#e74c3c" />
-                                        <Text style={[styles.actionButtonText, { color: '#e74c3c' }]}>Supprimer</Text>
-                                    </TouchableOpacity>
-                                </View>
-                            </View>
+                            <Text style={styles.campaignDescription}>
+                                {campaign.description}
+                            </Text>
                         </View>
                     ))
                 )}
             </ScrollView>
-
-            {Platform.OS === 'ios' && isFormVisible && (
-                <KeyboardAvoidingView behavior="padding" />
-            )}
         </SafeAreaView>
     );
 };
@@ -277,29 +297,34 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#f5f7fa',
     },
-
+    scrollContent: {
+        padding: 20,
+    },
+    
     profileHeaderContainer: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 20, 
+        marginBottom: 20,
     },
     profileTitle: {
         fontSize: 24,
         fontWeight: 'bold',
         color: '#333',
     },
-
+    profileSubtitle: {
+        fontSize: 14,
+        color: '#666',
+        marginTop: 2,
+    },
     logoutButton: {
-        padding: 5,
+        padding: 8,
     },
-    scrollContent: {
-        padding: 20,
-    },
-    createPostButton: {
+    
+    createButton: {
         flexDirection: 'row',
         backgroundColor: '#004488',
-        paddingVertical: 12,
+        paddingVertical: 14,
         borderRadius: 10,
         alignItems: 'center',
         justifyContent: 'center',
@@ -310,25 +335,28 @@ const styles = StyleSheet.create({
         shadowRadius: 3,
         elevation: 5,
     },
-    createPostButtonText: {
+    createButtonText: {
         color: '#fff',
         fontSize: 18,
         fontWeight: '600',
         marginLeft: 10,
     },
-    postsSectionTitle: {
+    
+    sectionTitle: {
         fontSize: 20,
         fontWeight: 'bold',
         color: '#333',
         marginBottom: 15,
     },
-    noPostsText: {
+    
+    noDataText: {
         textAlign: 'center',
         fontSize: 16,
         color: '#777',
         marginTop: 20,
     },
-    postCard: {
+    
+    campaignCard: {
         backgroundColor: '#fff',
         borderRadius: 10,
         padding: 15,
@@ -339,71 +367,32 @@ const styles = StyleSheet.create({
         shadowRadius: 3,
         elevation: 3,
     },
-    postHeader: {
+    cardHeader: {
         flexDirection: 'row',
         alignItems: 'center',
         marginBottom: 10,
     },
-    avatar: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: '#4287f5',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: 10,
+    cardHeaderText: {
+        marginLeft: 10,
+        flex: 1,
     },
-    avatarText: {
-        color: '#fff',
+    campaignTitle: {
+        fontSize: 18,
         fontWeight: 'bold',
-        fontSize: 14,
-    },
-    authorName: {
-        fontWeight: 'bold',
-        fontSize: 16,
         color: '#333',
     },
-    postTime: {
+    campaignDate: {
         fontSize: 12,
         color: '#777',
+        marginTop: 2,
     },
-    postContent: {
+    campaignDescription: {
         fontSize: 15,
-        color: '#333',
+        color: '#555',
         lineHeight: 22,
-        marginBottom: 15,
     },
-    postFooter: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        borderTopWidth: 1,
-        borderTopColor: '#eee',
-        paddingTop: 10,
-    },
-    voteContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    voteCount: {
-        fontSize: 14,
-        color: '#333',
-        marginLeft: 5,
-    },
-    postActions: {
-        flexDirection: 'row',
-        gap: 15,
-    },
-    actionButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    actionButtonText: {
-        fontSize: 14,
-        color: '#4287f5',
-        marginLeft: 5,
-    },
-    postFormContainer: {
+    
+    formContainer: {
         backgroundColor: '#fff',
         padding: 15,
         borderRadius: 10,
@@ -418,13 +407,22 @@ const styles = StyleSheet.create({
         fontSize: 18,
         fontWeight: '600',
         color: '#333',
-        marginBottom: 10,
+        marginBottom: 15,
     },
-    postInput: {
+    titleInput: {
         borderWidth: 1,
         borderColor: '#ddd',
         borderRadius: 8,
-        padding: 10,
+        padding: 12,
+        fontSize: 16,
+        marginBottom: 12,
+        backgroundColor: '#f9f9f9',
+    },
+    descriptionInput: {
+        borderWidth: 1,
+        borderColor: '#ddd',
+        borderRadius: 8,
+        padding: 12,
         fontSize: 16,
         textAlignVertical: 'top',
         minHeight: 100,
@@ -438,7 +436,7 @@ const styles = StyleSheet.create({
     },
     formButton: {
         paddingVertical: 10,
-        paddingHorizontal: 15,
+        paddingHorizontal: 20,
         borderRadius: 8,
         minWidth: 100,
         alignItems: 'center',

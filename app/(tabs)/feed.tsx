@@ -2,28 +2,30 @@ import axios, { isAxiosError } from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const BASE_URL = 'http://192.168.252.148:3000';
-const CAMPAIGNS_ENDPOINT = `${BASE_URL}/campaigns`;
+const BASE_URL = 'http://192.168.1.10:3000';
+
+// Interface pour le candidat peuplé par Mongoose
+interface PopulatedCandidate {
+    _id: string;
+    username: string;
+    class: string;
+}
 
 interface Campaign {
     _id: string;
     title: string;
     description: string;
-    candidate: {
-        username: string;
-        class: string;
-        // fullName pourrait être là si votre modèle User l'inclut
-    };
+    candidate: PopulatedCandidate; // Peuplé par .populate()
     createdAt: string;
 }
 
@@ -36,11 +38,18 @@ interface CandidateCardProps {
     description: string;
 }
 
-const CandidateCard = ({ initials, name, time, title, description, id }: CandidateCardProps) => {
-    const handleVote = () => {
-        Alert.alert("Voter", `Vous allez voter pour ${name}.`);
-    };
+interface CandidateCardProps {
+    id: string;
+    initials: string;
+    name: string;
+    username: string;
+    time: string;
+    title: string;
+    description: string;
+    onVote: (username: string) => void;
+}
 
+const CandidateCard = ({ initials, name, username, time, title, description, onVote }: CandidateCardProps) => {
     return (
         <View style={styles.cardContainer}>
             <View style={styles.cardHeader}>
@@ -57,7 +66,10 @@ const CandidateCard = ({ initials, name, time, title, description, id }: Candida
             <Text style={styles.campaignTitle}>{title}</Text>
             <Text style={styles.campaignMessage}>{description}</Text>
 
-            <TouchableOpacity style={styles.voteButton} onPress={handleVote}>
+            <TouchableOpacity 
+                style={styles.voteButton} 
+                onPress={() => onVote(username)}
+            >
                 <Text style={styles.voteButtonText}>Voter</Text>
             </TouchableOpacity>
         </View>
@@ -67,12 +79,7 @@ const CandidateCard = ({ initials, name, time, title, description, id }: Candida
 const FeedScreen = () => {
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-
-    const getToken = async () => {
-        const tokenString = await SecureStore.getItemAsync("token");
-        if (!tokenString) throw new Error("Token non trouvé.");
-        return JSON.parse(tokenString).access_token;
-    };
+    const [isVoting, setIsVoting] = useState(false);
 
     const formatTimeAgo = (dateString: string): string => {
         try {
@@ -81,41 +88,125 @@ const FeedScreen = () => {
             const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
 
             if (diffInSeconds < 60) return "À l'instant";
-            if (diffInSeconds < 3600) return `Il y a ${Math.floor(diffInSeconds / 60)} minutes`;
-            if (diffInSeconds < 86400) return `Il y a ${Math.floor(diffInSeconds / 3600)} heures`;
-            return date.toLocaleDateString();
+            if (diffInSeconds < 3600) return `Il y a ${Math.floor(diffInSeconds / 60)} min`;
+            if (diffInSeconds < 86400) return `Il y a ${Math.floor(diffInSeconds / 3600)}h`;
+            return date.toLocaleDateString('fr-FR');
 
         } catch {
             return "Récemment";
         }
     };
 
-    const getCandidateInitials = (candidate: Campaign['candidate']): string => {
-        const name = candidate.username; // Utiliser le username comme nom par défaut
-        return name.split(' ').map(n => n[0]).join('.').toUpperCase() || name[0].toUpperCase();
+    const getCandidateInitials = (candidate: PopulatedCandidate): string => {
+        const name = candidate.username;
+        const parts = name.split(' ');
+        if (parts.length > 1) {
+            return parts.map(n => n[0]).join('.').toUpperCase();
+        }
+        return name.substring(0, 2).toUpperCase();
     };
 
-    const getCandidateName = (candidate: Campaign['candidate']): string => {
-        // Idéalement, utilisez fullName si disponible, sinon username + class
+    const getCandidateName = (candidate: PopulatedCandidate): string => {
         return `${candidate.username} (${candidate.class})`;
-    }
+    };
+
+    const handleVote = async (username: string) => {
+        Alert.alert(
+            "Confirmer le vote",
+            `Voulez-vous vraiment voter pour ${username} ?`,
+            [
+                {
+                    text: "Annuler",
+                    style: "cancel"
+                },
+                {
+                    text: "Voter",
+                    onPress: async () => {
+                        setIsVoting(true);
+                        try {
+                            const token = await SecureStore.getItemAsync("token");
+
+                            if (!token) {
+                                Alert.alert("Erreur", "Veuillez vous reconnecter");
+                                return;
+                            }
+
+                            console.log("Vote pour:", username);
+
+                            const response = await axios.post(
+                                `${BASE_URL}/votes`,
+                                { username },
+                                {
+                                    headers: { 
+                                        'Authorization': `Bearer ${token}`,
+                                        'Content-Type': 'application/json'
+                                    }
+                                }
+                            );
+
+                            console.log("Réponse vote:", response.data);
+
+                            if (response.status === 201) {
+                                Alert.alert(
+                                    "Succès",
+                                    response.data.message || "Votre vote a été enregistré !",
+                                    [
+                                        {
+                                            text: "OK",
+                                            onPress: () => {
+                                                // Optionnel: rafraîchir les campagnes ou rediriger
+                                            }
+                                        }
+                                    ]
+                                );
+                            }
+
+                        } catch (error: unknown) {
+                            console.error("Erreur vote:", error);
+                            
+                            if (isAxiosError(error)) {
+                                const errorMessage = error.response?.data?.message || "Erreur lors du vote.";
+                                Alert.alert('Échec', errorMessage);
+                            } else {
+                                Alert.alert('Erreur', 'Une erreur inconnue est survenue.');
+                            }
+                        } finally {
+                            setIsVoting(false);
+                        }
+                    }
+                }
+            ]
+        );
+    };
 
     const fetchCampaigns = async () => {
         setIsLoading(true);
         try {
-            const token = await getToken();
+            const token = await SecureStore.getItemAsync("token");
 
-            const response = await axios.get(CAMPAIGNS_ENDPOINT, {
+            if (!token) {
+                Alert.alert("Erreur", "Veuillez vous reconnecter");
+                return;
+            }
+
+            console.log("Récupération des campagnes...");
+
+            const response = await axios.get(`${BASE_URL}/campaigns`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
+
+            console.log("Réponse campaigns:", response.data);
             
             if (response.data && Array.isArray(response.data.campaigns)) {
                 setCampaigns(response.data.campaigns);
             } else {
+                console.log("Format de réponse inattendu:", response.data);
                 setCampaigns([]);
             }
 
         } catch (error: unknown) {
+            console.error("Erreur fetch campaigns:", error);
+            
             if (isAxiosError(error)) {
                 const errorMessage = error.response?.data?.message || "Erreur lors du chargement des campagnes.";
                 Alert.alert('Erreur API', errorMessage);
@@ -144,7 +235,9 @@ const FeedScreen = () => {
     if (campaigns.length === 0) {
         return (
             <SafeAreaView style={[styles.safeArea, styles.loadingContainer]}>
-                <Text style={styles.noDataText}>Aucune campagne de candidat n'est encore disponible. 😥</Text>
+                <Text style={styles.noDataText}>
+                    Aucune campagne de candidat n'est encore disponible.
+                </Text>
                 <TouchableOpacity onPress={fetchCampaigns} style={styles.refreshButton}>
                     <Text style={styles.refreshButtonText}>Rafraîchir</Text>
                 </TouchableOpacity>
@@ -154,6 +247,12 @@ const FeedScreen = () => {
 
     return (
         <SafeAreaView style={styles.safeArea}>
+            {isVoting && (
+                <View style={styles.votingOverlay}>
+                    <ActivityIndicator size="large" color="#fff" />
+                    <Text style={styles.votingText}>Enregistrement du vote...</Text>
+                </View>
+            )}
             <ScrollView contentContainerStyle={styles.scrollViewContent}>
                 {campaigns.map((campaign) => (
                     <CandidateCard
@@ -161,9 +260,11 @@ const FeedScreen = () => {
                         id={campaign._id}
                         initials={getCandidateInitials(campaign.candidate)}
                         name={getCandidateName(campaign.candidate)}
+                        username={campaign.candidate.username}
                         time={formatTimeAgo(campaign.createdAt)}
                         title={campaign.title}
                         description={campaign.description}
+                        onVote={handleVote}
                     />
                 ))}
             </ScrollView>
@@ -182,6 +283,7 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
+        padding: 20,
     },
     loadingText: {
         marginTop: 10,
@@ -198,11 +300,12 @@ const styles = StyleSheet.create({
         backgroundColor: '#4287f5',
         paddingVertical: 10,
         paddingHorizontal: 20,
-        borderRadius: 5,
+        borderRadius: 8,
     },
     refreshButtonText: {
         color: '#fff',
         fontWeight: 'bold',
+        fontSize: 16,
     },
     scrollViewContent: {
         padding: 10,
@@ -240,6 +343,7 @@ const styles = StyleSheet.create({
         fontSize: 16,
     },
     headerTextContainer: {
+        flex: 1,
         justifyContent: 'center',
     },
     candidateName: {
@@ -250,9 +354,10 @@ const styles = StyleSheet.create({
     timeText: {
         fontSize: 12,
         color: '#777',
+        marginTop: 2,
     },
     campaignTitle: {
-        fontSize: 15,
+        fontSize: 16,
         fontWeight: 'bold',
         color: '#004488',
         marginBottom: 5,
@@ -274,5 +379,22 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontSize: 16,
         fontWeight: '600',
+    },
+    
+    votingOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 1000,
+    },
+    votingText: {
+        color: '#fff',
+        fontSize: 16,
+        marginTop: 10,
     },
 });

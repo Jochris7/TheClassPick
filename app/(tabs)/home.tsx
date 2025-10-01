@@ -2,30 +2,42 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import axios, { isAxiosError } from 'axios';
 import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
+import { jwtDecode } from 'jwt-decode';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Dimensions,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Dimensions,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 
-const BASE_URL = 'http://192.168.252.148:3000'; 
+const BASE_URL = 'http://192.168.1.10:3000';
+
+interface JwtPayload {
+    _id: string;
+    username: string;
+    email: string;
+    class: string;
+    candidate: boolean;
+    voted: boolean;
+    iat: number;
+    exp: number;
+}
 
 const HomeScreen = () => {
-    
     const router = useRouter();
-    
+
     const [isDelegate, setIsDelegate] = useState(false);
-    const [isLoading, setIsLoading] = useState(true); 
-    const [isApplying, setIsApplying] = useState(false); 
+    const [isLoading, setIsLoading] = useState(true);
+    const [isApplying, setIsApplying] = useState(false);
+    const [username, setUsername] = useState<string>('');
 
     useEffect(() => {
         checkCandidateStatus();
@@ -36,34 +48,32 @@ const HomeScreen = () => {
             const token = await SecureStore.getItemAsync("token");
 
             if (!token) {
+                console.log("Aucun token trouvé");
                 setIsLoading(false);
                 return;
             }
 
-            const tokenObject = JSON.parse(token);
-            const userToken = tokenObject.access_token;
+            // Décoder le JWT pour récupérer les infos utilisateur
+            const decoded = jwtDecode<JwtPayload>(token);
+            console.log("Token décodé:", decoded);
+            
+            setUsername(decoded.username);
+            setIsDelegate(decoded.candidate || false);
 
-            const response = await axios.get(`${BASE_URL}/me`, {
-                headers: {
-                    'Authorization': `Bearer ${userToken}`
-                }
-            });
-
-            if (response.data && response.data.user) {
-                setIsDelegate(response.data.user.candidate); 
-            } else {
-                 setIsDelegate(false);
-            }
         } catch (error) {
-            console.error(error);
+            console.error("Erreur checkCandidateStatus:", error);
+            if (error instanceof Error && error.message.includes('expired')) {
+                Alert.alert("Session expirée", "Veuillez vous reconnecter");
+                await SecureStore.deleteItemAsync("token");
+                router.push('/');
+            }
         } finally {
             setIsLoading(false);
         }
-    }
-
+    };
 
     const handleApply = async () => {
-        setIsApplying(true); 
+        setIsApplying(true);
 
         try {
             const token = await SecureStore.getItemAsync("token");
@@ -74,40 +84,48 @@ const HomeScreen = () => {
                 return;
             }
 
-            const tokenObject = JSON.parse(token);
-            const userToken = tokenObject.access_token;
-            
-            const BECOME_CANDIDATE_ENDPOINT = `${BASE_URL}/apply-delegate`; 
+            console.log("Appel API pour devenir candidat");
 
+            // La route est POST / avec authMiddleware
             const response = await axios.post(
-                BECOME_CANDIDATE_ENDPOINT, 
-                {}, 
+                `${BASE_URL}/`,
+                {},
                 {
                     headers: {
-                        'Authorization': `Bearer ${userToken}` 
+                        'Authorization': `Bearer ${token}`
                     }
                 }
             );
 
+            console.log("Réponse devenir candidat:", response.data);
+
             if (response.status === 200) {
-                Alert.alert("Succès !", "Félicitations, votre candidature est enregistrée !");
-                setIsDelegate(true);
+                Alert.alert("Succès !", response.data.message || "Votre candidature est enregistrée !");
+                
+                // Mettre à jour le token avec les nouvelles infos
+                if (response.data.user) {
+                    setIsDelegate(true);
+                }
+                
+                // Optionnel: rafraîchir le token si le backend en renvoie un nouveau
+                // Sinon, on recharge juste le statut
+                await checkCandidateStatus();
             }
 
         } catch (err: unknown) {
             if (isAxiosError(err)) {
-                const errorMessage = err.response?.data?.message || "Échec de la candidature (Problème de connexion ou route API).";
-
+                console.error("Erreur devenir candidat:", err.response?.status, err.response?.data);
+                const errorMessage = err.response?.data?.message || "Échec de la candidature.";
                 Alert.alert('Échec', errorMessage);
-                
             } else {
+                console.error("Erreur inconnue:", err);
                 Alert.alert('Erreur', 'Une erreur inconnue est survenue lors de la postulation.');
             }
         } finally {
             setIsApplying(false);
         }
     };
-    
+
     if (isLoading) {
         return (
             <View style={[styles.safeArea, { justifyContent: 'center', alignItems: 'center' }]}>
@@ -121,97 +139,88 @@ const HomeScreen = () => {
         <SafeAreaView style={styles.safeArea}>
             <StatusBar barStyle="light-content" backgroundColor="#4287f5" />
             <View style={styles.mainContent}>
-                
-                
+
                 {isDelegate ? (
-                    
                     <View style={styles.statusContainerAccepted}>
-                      <View style={styles.statusBorder} />
-                      <View>
-                        <Text style={styles.sectionTitle}>Statut de Candidature</Text>
-                        <View style={styles.statusContent}>
-                          <MaterialIcons name="check-circle" size={24} color="#2ECC71" style={styles.statusIcon} />
-                          <View>
-                            <Text style={styles.statusTextAccepted}>Candidature Acceptée</Text>
-                            <Text style={styles.statusSubtitle}>Vous pouvez créer des posts de campagne</Text>
-                          </View>
+                        <View style={styles.statusBorder} />
+                        <View>
+                            <Text style={styles.sectionTitle}>Statut de Candidature</Text>
+                            <View style={styles.statusContent}>
+                                <MaterialIcons name="check-circle" size={24} color="#2ECC71" style={styles.statusIcon} />
+                                <View>
+                                    <Text style={styles.statusTextAccepted}>Candidature Acceptée</Text>
+                                    <Text style={styles.statusSubtitle}>Vous pouvez créer des posts de campagne</Text>
+                                </View>
+                            </View>
                         </View>
-                      </View>
                     </View>
                 ) : (
-                    
                     <View style={styles.sectionContainer}>
-                      <Text style={styles.sectionTitle}>Statut de Candidature</Text>
-                      
-                      <TouchableOpacity 
-                          style={styles.primaryButton} 
-                          onPress={handleApply}
-                          disabled={isApplying}
-                      >
-                          {isApplying ? (
-                              <ActivityIndicator color="#fff" />
-                          ) : (
-                              <Text style={styles.primaryButtonText}>
-                                  Postuler comme Délégué
-                              </Text>
-                          )}
-                      </TouchableOpacity>
+                        <Text style={styles.sectionTitle}>Statut de Candidature</Text>
+
+                        <TouchableOpacity
+                            style={styles.primaryButton}
+                            onPress={handleApply}
+                            disabled={isApplying}
+                        >
+                            {isApplying ? (
+                                <ActivityIndicator color="#fff" />
+                            ) : (
+                                <Text style={styles.primaryButtonText}>
+                                    Postuler comme Délégué
+                                </Text>
+                            )}
+                        </TouchableOpacity>
                     </View>
                 )}
 
-
                 <View style={styles.cardsRow}>
-                    
                     <TouchableOpacity style={styles.card} onPress={() => router.push('/feed')}>
-                      <MaterialIcons name="article" size={30} color="#333" />
-                      <Text style={styles.cardTitle}>Fil de Campagne</Text>
-                      <Text style={styles.cardSubtitle}>Voir les posts</Text>
+                        <MaterialIcons name="article" size={30} color="#333" />
+                        <Text style={styles.cardTitle}>Fil de Campagne</Text>
+                        <Text style={styles.cardSubtitle}>Voir les posts</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity style={styles.card} onPress={() => router.push('/results')}>
-                      <MaterialIcons name="trending-up" size={30} color="#2ECC71" />
-                      <Text style={styles.cardTitle}>Résultats</Text>
-                      <Text style={styles.cardSubtitle}>Voir les votes</Text>
+                        <MaterialIcons name="trending-up" size={30} color="#2ECC71" />
+                        <Text style={styles.cardTitle}>Résultats</Text>
+                        <Text style={styles.cardSubtitle}>Voir les votes</Text>
                     </TouchableOpacity>
                 </View>
 
-                
                 {isDelegate && (
-                    <TouchableOpacity 
+                    <TouchableOpacity
                         style={styles.candidateSpace}
-                        onPress={() => router.push('/profile')} 
+                        onPress={() => router.push('/profile')}
                     >
-                      <MaterialIcons name="group" size={30} color="#fff" />
-                      <View>
-                        <Text style={styles.candidateSpaceTitle}>Espace Candidat</Text>
-                        <Text style={styles.candidateSpaceSubtitle}>Gérer mes posts de campagne</Text>
-                      </View>
+                        <MaterialIcons name="group" size={30} color="#fff" />
+                        <View>
+                            <Text style={styles.candidateSpaceTitle}>Espace Candidat</Text>
+                            <Text style={styles.candidateSpaceSubtitle}>Gérer mes posts de campagne</Text>
+                        </View>
                     </TouchableOpacity>
                 )}
 
             </View>
-
         </SafeAreaView>
     );
 };
 
 export default HomeScreen;
 
-
 const styles = StyleSheet.create({
     safeArea: {
         flex: 1,
-        backgroundColor: '#fff', 
+        backgroundColor: '#fff',
     },
 
     mainContent: {
         flex: 1,
         padding: 20,
     },
-    
 
     sectionContainer: {
-        backgroundColor: '#fff', 
+        backgroundColor: '#fff',
         padding: 15,
         borderRadius: 10,
         marginBottom: 20,
@@ -228,7 +237,7 @@ const styles = StyleSheet.create({
         marginBottom: 10,
     },
     primaryButton: {
-        backgroundColor: '#4287f5', 
+        backgroundColor: '#4287f5',
         borderRadius: 8,
         paddingVertical: 12,
         alignItems: 'center',
@@ -239,13 +248,12 @@ const styles = StyleSheet.create({
         fontWeight: '600',
     },
 
-
     statusContainerAccepted: {
-        backgroundColor: '#fff', 
+        backgroundColor: '#fff',
         padding: 15,
         borderRadius: 10,
         marginBottom: 20,
-        flexDirection: 'row', 
+        flexDirection: 'row',
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,
@@ -278,14 +286,14 @@ const styles = StyleSheet.create({
     cardsRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        marginBottom: 20, 
+        marginBottom: 20,
     },
     card: {
         backgroundColor: '#fff',
         borderRadius: 10,
         padding: 15,
-        width: (width - 60) / 2, 
-        height: 120, 
+        width: (width - 60) / 2,
+        height: 120,
         justifyContent: 'space-around',
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
